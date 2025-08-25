@@ -1,0 +1,37 @@
+[supervisord]
+nodaemon=true
+user=root
+logfile=/logs/supervisord.log
+pidfile=/var/run/supervisord.pid
+
+[program:ua-gui-manager]
+command=python /app/ua_gui_manager.py
+directory=/app
+user=appuser
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/logs/ua-gui-manager.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=3
+environment=DISPLAY="%(ENV_DISPLAY)s",HOME="/home/appuser",PYTHONPATH="/app"
+
+[program:xvfb]
+command=/usr/bin/Xvfb :99 -screen 0 1024x768x24
+user=root
+autostart=false
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/logs/xvfb.log
+priority=100
+
+[unix_http_server]
+file=/var/run/supervisor.sock
+chmod=0700
+chown=appuser:appuser
+
+[supervisorctl]
+serverurl=unix:///var/run/supervisor.sock
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface

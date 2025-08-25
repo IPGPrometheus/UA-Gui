@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  upload-assistant-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ua-gui-manager
+    restart: unless-stopped
+    
+    # X11 forwarding for GUI
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    
+    volumes:
+      # X11 socket for GUI display
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/home/appuser/.Xauthority:ro
+      
+      # Application configuration
+      - ./config:/config
+      
+      # Mount your actual directories (adjust paths as needed)
+      - /mnt/user/appdata/cross-pollinator/logs:/mnt/user/appdata/cross-pollinator/logs:ro
+      - /mnt/user/data/torrents:/mnt/user/data/torrents:rw
+      
+      # Optional: Mount upload-assistant if it's installed locally
+      - /usr/local/bin/upload-assistant:/usr/local/bin/upload-assistant:ro
+      
+      # Logs directory for the application itself
+      - ./logs:/logs
+    
+    # Network mode for X11 forwarding
+    network_mode: host
+    
+    # Security context
+    security_opt:
+      - seccomp:unconfined
+    
+    # Capabilities for GUI applications
+    cap_add:
+      - SYS_PTRACE
+    
+    # Device access if needed
+    devices:
+      - /dev/dri:/dev/dri
+    
+    # User mapping
+    user: "1000:1000"
+    
+    # Working directory
+    working_dir: /app
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import tkinter; print('GUI available')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Upload Assistant service (if you want to run it separately)
+  upload-assistant:
+    image: python:3.11-slim
+    container_name: upload-assistant
+    restart: "no"
+    volumes:
+      - /mnt/user/data/torrents:/data:rw
+      - ./config:/config:ro
+    working_dir: /data
+    # This would be started on-demand from the GUI
+    command: sleep infinity
+
+networks:
+  default:
+    name: ua-gui-network

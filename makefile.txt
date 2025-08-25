@@ -1,0 +1,187 @@
+# Makefile for Upload Assistant GUI Manager Docker Setup
+
+# Variables
+DOCKER_IMAGE_NAME = ua-gui-manager
+DOCKER_CONTAINER_NAME = ua-gui-manager
+DOCKER_COMPOSE_FILE = docker-compose.yml
+
+# Default target
+.PHONY: help
+help:
+	@echo "Upload Assistant GUI Manager Docker Commands:"
+	@echo ""
+	@echo "  make build       - Build the Docker image"
+	@echo "  make run         - Run the container (GUI mode)"
+	@echo "  make run-bg      - Run the container in background"
+	@echo "  make stop        - Stop the container"
+	@echo "  make restart     - Restart the container"
+	@echo "  make logs        - Show container logs"
+	@echo "  make shell       - Open shell in container"
+	@echo "  make clean       - Remove container and image"
+	@echo "  make setup-x11   - Setup X11 forwarding for GUI"
+	@echo ""
+	@echo "  make compose-up     - Start with docker-compose"
+	@echo "  make compose-down   - Stop docker-compose"
+	@echo "  make compose-build  - Build with docker-compose"
+	@echo "  make compose-logs   - Show compose logs"
+	@echo ""
+	@echo "  make install-deps   - Install system dependencies"
+	@echo "  make test-gui       - Test GUI availability"
+
+# Build the Docker image
+.PHONY: build
+build:
+	docker build -t $(DOCKER_IMAGE_NAME) .
+
+# Run the container with GUI support
+.PHONY: run
+run: setup-x11
+	docker run -it --rm \
+		--name $(DOCKER_CONTAINER_NAME) \
+		-e DISPLAY=$(DISPLAY) \
+		-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+		-v $(HOME)/.Xauthority:/home/appuser/.Xauthority:ro \
+		-v $(PWD)/config:/config \
+		-v $(PWD)/logs:/logs \
+		-v /mnt/user/appdata/cross-pollinator/logs:/mnt/user/appdata/cross-pollinator/logs:ro \
+		-v /mnt/user/data/torrents:/mnt/user/data/torrents:rw \
+		--network host \
+		--security-opt seccomp:unconfined \
+		$(DOCKER_IMAGE_NAME)
+
+# Run container in background
+.PHONY: run-bg
+run-bg: setup-x11
+	docker run -d \
+		--name $(DOCKER_CONTAINER_NAME) \
+		-e DISPLAY=$(DISPLAY) \
+		-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+		-v $(HOME)/.Xauthority:/home/appuser/.Xauthority:ro \
+		-v $(PWD)/config:/config \
+		-v $(PWD)/logs:/logs \
+		-v /mnt/user/appdata/cross-pollinator/logs:/mnt/user/appdata/cross-pollinator/logs:ro \
+		-v /mnt/user/data/torrents:/mnt/user/data/torrents:rw \
+		--network host \
+		--security-opt seccomp:unconfined \
+		$(DOCKER_IMAGE_NAME)
+
+# Stop the container
+.PHONY: stop
+stop:
+	docker stop $(DOCKER_CONTAINER_NAME) || true
+	docker rm $(DOCKER_CONTAINER_NAME) || true
+
+# Restart the container
+.PHONY: restart
+restart: stop run-bg
+
+# Show container logs
+.PHONY: logs
+logs:
+	docker logs -f $(DOCKER_CONTAINER_NAME)
+
+# Open shell in container
+.PHONY: shell
+shell:
+	docker exec -it $(DOCKER_CONTAINER_NAME) /bin/bash
+
+# Clean up container and image
+.PHONY: clean
+clean: stop
+	docker rmi $(DOCKER_IMAGE_NAME) || true
+	docker system prune -f
+
+# Setup X11 forwarding
+.PHONY: setup-x11
+setup-x11:
+	@echo "Setting up X11 forwarding..."
+	@xhost +local:docker || echo "Warning: Could not run xhost. GUI may not work."
+	@echo "DISPLAY is set to: $(DISPLAY)"
+
+# Docker Compose commands
+.PHONY: compose-up
+compose-up:
+	docker-compose -f $(DOCKER_COMPOSE_FILE) up -d
+
+.PHONY: compose-down
+compose-down:
+	docker-compose -f $(DOCKER_COMPOSE_FILE) down
+
+.PHONY: compose-build
+compose-build:
+	docker-compose -f $(DOCKER_COMPOSE_FILE) build
+
+.PHONY: compose-logs
+compose-logs:
+	docker-compose -f $(DOCKER_COMPOSE_FILE) logs -f
+
+# Install system dependencies (run on host)
+.PHONY: install-deps
+install-deps:
+	@echo "Installing system dependencies for GUI Docker applications..."
+	@if command -v apt-get >/dev/null 2>&1; then \
+		sudo apt-get update && \
+		sudo apt-get install -y x11-xserver-utils xauth; \
+	elif command -v yum >/dev/null 2>&1; then \
+		sudo yum install -y xorg-x11-server-utils xorg-x11-xauth; \
+	elif command -v pacman >/dev/null 2>&1; then \
+		sudo pacman -S xorg-xhost xorg-xauth; \
+	else \
+		echo "Please install xhost and xauth manually for your system"; \
+	fi
+
+# Test GUI availability
+.PHONY: test-gui
+test-gui:
+	@echo "Testing GUI availability..."
+	@if [ -z "$(DISPLAY)" ]; then \
+		echo "Error: DISPLAY not set. Run: export DISPLAY=:0"; \
+		exit 1; \
+	fi
+	@if ! command -v xhost >/dev/null 2>&1; then \
+		echo "Warning: xhost not found. Run: make install-deps"; \
+	fi
+	@python3 -c "import tkinter; root = tkinter.Tk(); root.withdraw(); print('GUI test passed')" || \
+		echo "GUI test failed. Check X11 setup."
+
+# Create necessary directories
+.PHONY: setup-dirs
+setup-dirs:
+	mkdir -p config logs
+	@echo "Created config and logs directories"
+
+# Development mode - build and run with code mounting
+.PHONY: dev
+dev: build setup-dirs
+	docker run -it --rm \
+		--name $(DOCKER_CONTAINER_NAME)-dev \
+		-e DISPLAY=$(DISPLAY) \
+		-v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+		-v $(HOME)/.Xauthority:/home/appuser/.Xauthority:ro \
+		-v $(PWD)/ua_gui_manager.py:/app/ua_gui_manager.py:ro \
+		-v $(PWD)/config:/config \
+		-v $(PWD)/logs:/logs \
+		--network host \
+		--security-opt seccomp:unconfined \
+		$(DOCKER_IMAGE_NAME)
+
+# Show container status
+.PHONY: status
+status:
+	@docker ps -a | grep $(DOCKER_CONTAINER_NAME) || echo "Container not found"
+	@docker images | grep $(DOCKER_IMAGE_NAME) || echo "Image not found"
+
+# Backup configuration
+.PHONY: backup-config
+backup-config:
+	@if [ -d "config" ]; then \
+		tar -czf config-backup-$(shell date +%Y%m%d-%H%M%S).tar.gz config/; \
+		echo "Configuration backed up"; \
+	else \
+		echo "No config directory found"; \
+	fi
+
+# All-in-one setup
+.PHONY: setup
+setup: install-deps setup-dirs build setup-x11
+	@echo "Setup complete! Run 'make run' to start the application."
